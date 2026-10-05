@@ -22,6 +22,16 @@ st.title("🧠 Stroke Risk Screening")
 st.caption("IT2011 Group 21 · Calibrated XGBoost model trained on the Kaggle Stroke Prediction Dataset")
 st.warning("Course prototype only - not a medical device. The result is a risk estimate, not a diagnosis.")
 
+OUTPUT_MODES = {
+    "Risk percentage": "percent",
+    "Risk / No risk label": "label",
+    "Both": "both",
+}
+mode_name = st.radio("Show the result as", list(OUTPUT_MODES), horizontal=True,
+                     help="'Risk percentage' shows the estimated chance of stroke. "
+                          "'Risk / No risk label' only shows whether the patient is above the screening threshold.")
+mode = OUTPUT_MODES[mode_name]
+
 with st.form("patient"):
     c1, c2 = st.columns(2)
     with c1:
@@ -37,7 +47,7 @@ with st.form("patient"):
         work_type = st.selectbox("Work type", ["Private", "Self-employed", "Govt_job", "children", "Never_worked"])
         residence = st.selectbox("Residence type", ["Urban", "Rural"])
         smoking_status = st.selectbox("Smoking status", ["never smoked", "formerly smoked", "smokes", "Unknown"])
-    submitted = st.form_submit_button("Estimate risk", type="primary", use_container_width=True)
+    submitted = st.form_submit_button("Predict", type="primary", use_container_width=True)
 
 if submitted:
     patient = {
@@ -49,23 +59,29 @@ if submitted:
         "smoking_status": smoking_status,
     }
     risk = float(model.predict_proba(pd.DataFrame([patient])[COLS])[:, 1][0])
-    flagged = risk >= THRESHOLD
+    at_risk = risk >= THRESHOLD
+    label = "RISK" if at_risk else "NO RISK"
 
-    m1, m2 = st.columns(2)
-    m1.metric("Estimated stroke risk", f"{risk * 100:.1f} %")
-    m2.metric("Screening threshold", f"{THRESHOLD * 100:.1f} %")
-    if flagged:
-        st.error("**Flag for follow-up** - risk is at or above the screening threshold.")
-    else:
-        st.success("**Below threshold** - no flag.")
-    st.progress(min(risk / 0.4, 1.0), text="Risk relative to a 40 % scale")
+    st.subheader("Result")
+    if mode in ("label", "both"):
+        if at_risk:
+            st.error(f"### ⚠️ {label}\nRisk is at or above the screening threshold - refer for follow-up.")
+        else:
+            st.success(f"### ✅ {label}\nRisk is below the screening threshold.")
+    if mode in ("percent", "both"):
+        m1, m2 = st.columns(2)
+        m1.metric("Estimated stroke risk", f"{risk * 100:.1f} %")
+        m2.metric("Screening threshold", f"{THRESHOLD * 100:.1f} %")
+        st.progress(min(risk / 0.4, 1.0), text="Risk on a 0-40 % scale")
 
     with st.expander("How to read this"):
         st.markdown(
             f"""
-- The average stroke rate in the training data is **4.9 %**.
-- The threshold ({THRESHOLD * 100:.1f} %) is deliberately low: the model is tuned to catch most strokes
-  (about 70 % in testing), so many flagged patients will not have a stroke.
+- **Risk percentage** is the model's calibrated estimate of the chance that this patient has had a stroke.
+  The average in the training data is **4.9 %**.
+- **Risk / No risk** compares that percentage with the screening threshold (**{THRESHOLD * 100:.1f} %**).
+  The threshold is deliberately low: the model is tuned to catch most strokes (about 70 % in testing),
+  so many patients labelled "Risk" will not have had a stroke. Every "Risk" result needs a clinician's follow-up.
 - Age has by far the largest effect. Smoking status was removed by feature selection, so it does not change the result.
 """
         )
